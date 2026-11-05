@@ -1,8 +1,8 @@
 name: OpenWISP
-version: "0.5.1"
+version: "0.5.2"
 slug: openwisp
 description: "OpenWISP network configuration and monitoring controller"
-url: https://github.com/doozers-do/openwisp-ha/tree/main/openwisp
+url: https://github.com/doozers-do/openwisp-ha
 arch:
   - amd64
 stage: experimental

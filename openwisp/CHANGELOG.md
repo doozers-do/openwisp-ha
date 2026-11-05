@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- Consolidate the Home Assistant app introduction and user guide in the repository README.
+- Add OpenWISP app icon and logo assets for the Home Assistant app store and app page.
+
 ## 0.5.1
 
 - Consolidate the four single-concurrency Celery workers into one worker consuming all four queues.
