@@ -349,6 +349,7 @@ paket-files/
 # Python Tools for Visual Studio (PTVS)
 **/__pycache__/
 *.pyc
+.venv-pr1/
 
 # Cake - Uncomment if you are using it
 #tools/**
@@ -426,3 +427,8 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+/docs
+
+!/docs/
+!/docs/DEVELOPMENT.md

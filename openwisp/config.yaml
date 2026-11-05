@@ -1,0 +1,58 @@
+name: OpenWISP
+version: "0.5.1"
+slug: openwisp
+description: "OpenWISP network configuration and monitoring controller"
+url: https://github.com/doozers-do/openwisp-ha/tree/main/openwisp
+arch:
+  - amd64
+stage: experimental
+startup: application
+boot: manual
+init: false
+timeout: 120
+host_network: false
+ingress: true
+ingress_port: 8099
+ingress_entry: admin/
+panel_title: OpenWISP
+panel_icon: mdi:router-network
+panel_admin: true
+ports:
+  443/tcp: null
+ports_description:
+  443/tcp: Optional direct HTTPS for devices, external API and recovery dashboard; match https_port
+map:
+  - type: ssl
+    read_only: true
+options:
+  ingress_enabled: true
+  ingress_origin: http://homeassistant.local:8123
+  ingress_users: []
+  direct_https: false
+  external_url: ""
+  certfile: fullchain.pem
+  keyfile: privkey.pem
+  https_port: 443
+  runtime_mode: production
+  startup_timeout: 60
+  celery_concurrency: 2
+schema:
+  ingress_enabled: bool
+  ingress_origin: str
+  ingress_users:
+    - ha_user_id: str
+      openwisp_username: str
+  direct_https: bool
+  external_url: str?
+  certfile: str
+  keyfile: str
+  https_port: int(1,65535)
+  dashboard_domain: str(1,253)?
+  api_domain: str(1,253)?
+  admin_username: str(1,150)
+  admin_email: email
+  admin_password: password(12,)
+  django_secret_key: password(50,)
+  runtime_mode: list(production|development)
+  startup_timeout: int(1,300)
+  celery_concurrency: int(1,4)
