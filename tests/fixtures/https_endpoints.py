@@ -1,6 +1,7 @@
 """Sign in and exercise the app directly through its internal HTTPS server."""
 import base64
 import hashlib
+from html.parser import HTMLParser
 import json
 from pathlib import Path
 import socket
@@ -31,6 +32,39 @@ assert session.cookies.get('openwisp_direct_session'), 'Sign-in did not create a
 if options['dashboard_domain'] == options['api_domain']:
     assert all(not cookie.domain_specified for cookie in session.cookies), 'Shared-host cookies must be host-only'
 print('PASS: supplied administrator signs in over certificate-verified HTTPS; dashboard and secure session/CSRF cookies')
+
+
+class MenuLinks(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = {}
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == 'a' and 'menu-item' in attrs.get('class', '').split():
+            label = attrs.get('aria-label')
+            if label in ('Home', 'System info'):
+                assert label not in self.links, f'duplicate menu entry: {label}'
+                self.links[label] = attrs['href']
+
+
+def direct_menu(response):
+    parser = MenuLinks()
+    parser.feed(response.text)
+    assert parser.links == {'Home': '/admin', 'System info': '/admin/openwisp-system-info/'}
+    return parser.links
+
+
+links = direct_menu(response)
+response = session.get(DASHBOARD + links['System info'], timeout=15)
+assert response.status_code == 200 and response.url == DASHBOARD + '/admin/openwisp-system-info/'
+assert 'System Information' in response.text
+links = direct_menu(response)
+response = session.get(DASHBOARD + links['Home'], timeout=15)
+assert response.status_code == 200 and response.url == DASHBOARD + '/admin/'
+assert all(item.url.startswith(DASHBOARD + '/admin') for item in response.history)
+assert 'OpenWISP' in response.text
+print('PASS: direct HTTPS sidebar Home and System info links retain their destinations and work')
 
 # Upstream API role and cross-subdomain login cookies must work together.
 response = session.get(API + '/api/v1/controller/device/', timeout=15)

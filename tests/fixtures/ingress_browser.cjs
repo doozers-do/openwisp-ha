@@ -15,6 +15,39 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '/tmp/openwisp-brows
       if (url.origin === origin && !url.pathname.startsWith('/api/hassio_ingress/')) escaped.push(url.pathname);
     });
     page.on('websocket', socket => sockets.push(socket.url()));
+    async function menuNavigation(prefix, limited = false) {
+      const home = page.locator('nav.nav > a.menu-item[aria-label="Home"]');
+      const info = page.locator('nav.nav > a.menu-item[aria-label="System info"]');
+      async function inspect() {
+        assert.equal(await home.count(), 1);
+        assert.equal(await info.count(), 1);
+        assert.equal(await home.getAttribute('href'), prefix + '/admin/');
+        assert.equal(await info.getAttribute('href'), prefix + '/admin/openwisp-system-info/');
+        assert.equal(await home.locator('.ow-dashboard-icon').count(), 1);
+        assert.equal(await info.locator('.ow-info-icon').count(), 1);
+        assert(await home.evaluate((el, other) => !!(el.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING), await info.elementHandle()));
+        const model = page.locator('nav.nav > a.menu-item[aria-label="Devices"]');
+        if (limited) assert.equal(await model.count(), 0);
+        else {
+          assert.equal(await model.count(), 1);
+          assert.equal(await model.getAttribute('href'), prefix + '/admin/config/device/');
+        }
+      }
+      async function clickAndCheck(link, path, content) {
+        const [response] = await Promise.all([page.waitForNavigation(), link.click()]);
+        assert.equal(response.status(), 200);
+        assert.equal(page.url(), origin + prefix + path);
+        for (let request = response.request(); request; request = request.redirectedFrom()) {
+          assert(new URL(request.url()).pathname.startsWith(prefix + '/'));
+        }
+        assert.match(await page.textContent('body'), content);
+      }
+      await inspect();
+      await clickAndCheck(info, '/admin/openwisp-system-info/', /System Information/);
+      await inspect();
+      await clickAndCheck(home, '/admin/', /OpenWISP/);
+      await inspect();
+    }
     // Reproduce Core's no-referrer response policy without the app's meta tag.
     // The submitted form still has its real session, CSRF cookie and token.
     const brokenUrl = origin + '/api/hassio_ingress/one/admin/password_change/';
@@ -42,6 +75,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '/tmp/openwisp-brows
       assert.equal(await page.locator('meta[name=referrer]').getAttribute('content'), 'strict-origin');
       await page.waitForLoadState('networkidle');
       assert.match(await page.textContent('body'), /test-admin/);
+      await menuNavigation(prefix);
       const cookies = await context.cookies(origin + prefix + '/admin/');
       assert(cookies.some(cookie => cookie.name === 'openwisp_ingress_session'));
       assert(cookies.some(cookie => cookie.name === 'openwisp_ingress_csrf'));
@@ -76,6 +110,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '/tmp/openwisp-brows
         }
       }
       await page.goto(origin + prefix + '/admin/config/device/');
+      await menuNavigation(prefix);
       assert.equal((await page.request.get(origin + prefix + '/static/admin/css/base.css')).status(), 200);
       // The notifications connection must perform a real successful upgrade.
       const upgraded = await page.evaluate(prefix => new Promise(resolve => {
@@ -87,6 +122,8 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '/tmp/openwisp-brows
       assert(upgraded, 'Notification WebSocket failed');
     }
     const prefix = '/api/hassio_ingress/two';
+    assert.equal((await page.goto(origin + '/api/hassio_ingress/limited/admin/')).status(), 200);
+    await menuNavigation('/api/hassio_ingress/limited', true);
     await page.goto(origin + prefix + '/admin/');
     await page.evaluate(url => {
       const frame = document.createElement('iframe');

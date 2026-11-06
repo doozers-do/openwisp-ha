@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+
+- Fix the admin sidebar Home and System info links to stay within the current Home Assistant ingress session.
+
 ## 0.5.3
 
 - Set an ingress-only admin document referrer policy so normal form submissions retain their origin when Home Assistant sends a `no-referrer` response header. CSRF and ingress identity checks remain enabled.

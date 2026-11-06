@@ -29,4 +29,9 @@ STORAGES = {
     'default': {'BACKEND': 'ingress.storage.Media'},
     'staticfiles': {'BACKEND': 'ingress.storage.Static'},
 }
-TEMPLATES[0]['OPTIONS']['context_processors'].append('ingress.middleware.template_context')
+processors = TEMPLATES[0]['OPTIONS']['context_processors']
+upstream_menu = 'openwisp_utils.admin_theme.context_processor.menu_groups'
+if processors.count(upstream_menu) != 1:
+    raise RuntimeError('Expected exactly one upstream admin menu context processor')
+processors[processors.index(upstream_menu)] = 'ingress.menu.menu_groups'
+processors.append('ingress.middleware.template_context')
