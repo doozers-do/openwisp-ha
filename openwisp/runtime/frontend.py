@@ -36,6 +36,7 @@ def main():
         path.write_text(text)
     replace(ROOT / 'openwisp_utils/admin_theme/templates/admin/base_site.html',
             '{% block extrastyle %}', '''{% block extrahead %}
+{% if openwisp_ingress_prefix %}<meta name="referrer" content="strict-origin">{% endif %}
 {{ block.super }}
 <script src="{% url 'admin:jsi18n' %}"></script>
 <script>

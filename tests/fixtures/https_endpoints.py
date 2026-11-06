@@ -26,6 +26,7 @@ response = session.post(DASHBOARD + '/admin/login/?next=/admin/', data={
 }, headers={'Referer': DASHBOARD + '/admin/login/'}, timeout=30)
 assert response.status_code == 200 and response.url == DASHBOARD + '/admin/', response.url
 assert 'Log out' in response.text and 'OpenWISP' in response.text
+assert '<meta name="referrer" content="strict-origin">' not in response.text
 assert session.cookies.get('openwisp_direct_session'), 'Sign-in did not create a session'
 if options['dashboard_domain'] == options['api_domain']:
     assert all(not cookie.domain_specified for cookie in session.cookies), 'Shared-host cookies must be host-only'
@@ -57,7 +58,7 @@ print('PASS: hashed Brotli static assets, public uploads and denial of direct pr
 context = ssl.create_default_context(cafile=CA)
 with socket.create_connection((options['dashboard_domain'], 443), timeout=15) as raw:
     with context.wrap_socket(raw, server_hostname=options['dashboard_domain']) as connection:
-        key = base64.b64encode(b'https-websocketkey').decode()
+        key = base64.b64encode(b'https-websocket!').decode()
         cookie = '; '.join(f'{item.name}={item.value}' for item in session.cookies)
         connection.sendall((
             f"GET /ws/notification/ HTTP/1.1\r\nHost: {options['dashboard_domain']}\r\n"

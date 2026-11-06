@@ -1,5 +1,5 @@
 name: OpenWISP
-version: "0.5.2"
+version: "0.5.3"
 slug: openwisp
 description: "OpenWISP network configuration and monitoring controller"
 url: https://github.com/doozers-do/openwisp-ha

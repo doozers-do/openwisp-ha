@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from uuid import UUID
 
 sys.path.insert(0, '/opt/ha-openwisp')
 from run import read_options
@@ -18,8 +19,13 @@ django.setup()
 from django.contrib.auth import get_user_model
 from openwisp_users.models import Organization
 from openwisp_controller.geo.models import Location
+from openwisp_controller.config.models import Device
 
 get_user_model().objects.create_user(username='operator', password=None, is_staff=True)
+organization = Organization.objects.create(id='22222222-2222-4222-8222-222222222222',
+    name='Ingress save fixture', slug='ingress-save-fixture')
+Device.objects.create(id=UUID('33333333-3333-4333-8333-333333333333'),
+    organization=organization, name='ingress-save-fixture', mac_address='02:00:00:00:00:01')
 Location.objects.create(id='11111111-1111-4111-8111-111111111111',
                         name='Ingress upload fixture', type='indoor', is_mobile=True,
                         organization=Organization.objects.first())

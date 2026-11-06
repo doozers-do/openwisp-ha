@@ -69,6 +69,12 @@ Read the app log from the first reported error onward and confirm the required a
 
 Confirm `ingress_enabled` is true, `ingress_origin` exactly matches the browser's Home Assistant origin, and the signed-in Home Assistant user ID maps to an active OpenWISP username. Confirm that account can sign in directly and has permission to access the requested OpenWISP objects.
 
+### Saving a form reports CSRF verification failed
+
+Update the app and open it through Home Assistant with an `ingress_origin` matching the browser address, including scheme and port. Some Home Assistant versions send a `no-referrer` policy that made older app versions submit forms with `Origin: null`; current ingress admin pages specify a policy that preserves the origin without exposing the ingress path in referrers. Other CSRF failures can have different causes.
+
+Check the app logs for the Django CSRF rejection reason; production debug mode is not needed. Before sharing a log excerpt, remove ingress paths, object IDs, hostnames, cookies, tokens and other private information. Never share a raw browser capture or copied request containing session information.
+
 ### Direct HTTPS fails
 
 Check DNS resolution, certificate trust and name coverage, the saved `443/tcp` host mapping, and that `https_port` matches the host port. Keep the app's internal container port at 443. Review app logs for certificate validation errors without sharing private key contents.

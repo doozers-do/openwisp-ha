@@ -17,7 +17,7 @@ Run commands from the repository root. Docker checks build the actual `linux/amd
 - `python3 tools/service_lifecycle_check.py` checks initialization, service persistence and recovery.
 - `python3 tools/https_endpoints_check.py` checks HTTPS routes, API, WebSocket, worker queues and failure recovery.
 - `python3 tools/agent_workflow_check.py` checks disposable configuration and monitoring agent workflows.
-- `python3 tools/ingress_check.py` checks the browser ingress flow.
+- `python3 tools/ingress_check.py` checks the browser ingress flow over HTTP; add `--https` to simulate HTTPS ingress.
 
 The checks inject scripts from `tests/fixtures/` into disposable containers. Those files are fixtures, not user utilities. `tools/tls_fixture.py` and `tools/hsts_check.py` are shared integration helpers. User support scripts are `tools/generate_local_certificate.py` (Python 3 and OpenSSL; outputs certificates outside the repository) and `tools/interface_mapping_check.py` (read-only; accepts `ha apps info APP_SLUG --raw-json` on stdin). The latter can be run as `ssh HOST 'ha apps info APP_SLUG --raw-json' | python3 tools/interface_mapping_check.py`.
 

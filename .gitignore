@@ -428,7 +428,5 @@ FodyWeavers.xsd
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
 
-/docs
-
-!/docs/
-!/docs/DEVELOPMENT.md
+# macOS Finder metadata
+.DS_Store

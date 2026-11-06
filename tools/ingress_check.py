@@ -10,6 +10,7 @@ import uuid
 
 from image_lifecycle_check import docker, logs, state
 from https_endpoints_check import ready
+from tls_fixture import create_tls_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--keep', action='store_true', help='retain fixtures for debugging')
+    parser.add_argument('--https', action='store_true', help='simulate HTTPS Home Assistant ingress')
     args = parser.parse_args()
     name = 'ha-openwisp-ingress-' + uuid.uuid4().hex[:8]
     network, proxy, image = name + '-net', name + '-proxy', 'ha-openwisp:ingress-dev'
@@ -37,10 +39,17 @@ def main():
                 proxy_http_version 1.1;
                 proxy_set_header Upgrade $http_upgrade;
                 proxy_set_header Connection "upgrade";
+                proxy_hide_header Referrer-Policy;
+                add_header Referrer-Policy no-referrer always;
             }}''')
         # Start proxy after app DNS exists; use a stopped container to reserve
         # its ephemeral host mapping, then inspect it after startup.
-        (fixture / 'nginx.conf').write_text('events {}\nhttp { access_log off; server { listen 8123;'
+        tls = ''
+        if args.https:
+            create_tls_fixture(fixture)
+            tls = ' ssl_certificate /fixture/fullchain.pem; ssl_certificate_key /fixture/privkey.pem;'
+        listen = '8123 ssl' if args.https else '8123'
+        (fixture / 'nginx.conf').write_text(f'events {{}}\nhttp {{ access_log off; server {{ listen {listen};' + tls
             + ''.join(routes) + '\nlocation / { return 404; } } }')
         # Allocate host port with a temporary proxy whose upstream DNS is runtime-resolved.
         text = (fixture / 'nginx.conf').read_text().replace('proxy_pass http://app:8099/;',
@@ -52,7 +61,7 @@ def main():
                '-v', f'{fixture}:/fixture:ro', '--entrypoint', 'nginx', image,
                '-c', '/fixture/nginx.conf', '-g', 'daemon off;')
         port = docker('port', proxy, '8123').stdout.strip()
-        origin = 'http://' + port
+        origin = ('https://' if args.https else 'http://') + port
         options = dict(direct_https=False, ingress_enabled=True, ingress_origin=origin,
                        ingress_users=[dict(ha_user_id='a' * 32, openwisp_username='test-admin'),
                                       dict(ha_user_id='c' * 32, openwisp_username='operator')],
@@ -99,7 +108,9 @@ def main():
         ready(name)
         print('PASS: ingress-only restart preserves application startup', flush=True)
     except Exception:
-        print(logs(name)[-7000:])
+        output = docker('logs', name, check=False)
+        if output.returncode == 0:
+            print((output.stdout + output.stderr)[-7000:])
         raise
     finally:
         if args.keep:
