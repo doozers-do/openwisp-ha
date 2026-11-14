@@ -1,0 +1,42 @@
+{
+  "upstream_release": "26.09.2",
+  "upstream_commit": "7f1ebd58aa24f5104fdf9e1f532c948461cd1751",
+  "base_image": "openwisp/openwisp-websocket:26.09.2@sha256:ea4b8024578f00a7e56733294cafac7b2737596e1049583878e35c775728fe26",
+  "platform": "linux/amd64",
+  "redis_server_package": "5:8.0.2-3+deb13u3",
+  "redis_tools_package": "5:8.0.2-3+deb13u3",
+  "debian_packages": {
+    "redis-server": "5:8.0.2-3+deb13u3",
+    "redis-tools": "5:8.0.2-3+deb13u3",
+    "postgresql-17": "17.11-0+deb13u1",
+    "postgresql-client-17": "17.11-0+deb13u1",
+    "postgresql-17-postgis-3": "3.5.2+dfsg-1",
+    "postgresql-17-postgis-3-scripts": "3.5.2+dfsg-1",
+    "nginx": "1.26.3-3+deb13u10",
+    "nginx-common": "1.26.3-3+deb13u10",
+    "libnginx-mod-http-brotli-static": "1.0.0~rc-6"
+  },
+  "upstream_source": {
+    "url": "https://codeload.github.com/openwisp/docker-openwisp/tar.gz/7f1ebd58aa24f5104fdf9e1f532c948461cd1751",
+    "sha256": "254ee2fe065be84008fe8fb898770bfe88b59b6797a56680c9af95ca7c356ffb"
+  },
+  "influxdb": {
+    "version": "1.8.10",
+    "url": "https://dl.influxdata.com/influxdb/releases/influxdb-1.8.10-static_linux_amd64.tar.gz",
+    "sha256": "084313d45052afdcdbb04da807c23c3fa6ed5f0ae3a2956ea70d60a14d1622ee"
+  },
+  "base_python_packages": {
+    "Django": "5.2.18",
+    "daphne": "4.2.3",
+    "supervisor": "4.3.0",
+    "redis": "8.1.0",
+    "channels-redis": "4.3.0",
+    "tldextract": "5.3.2",
+    "psycopg": "3.3.6",
+    "influxdb": "5.3.2",
+    "uWSGI": "2.0.31",
+    "celery": "5.6.3",
+    "openwisp-controller": "1.3.2",
+    "openwisp-monitoring": "1.3"
+  }
+}

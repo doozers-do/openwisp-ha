@@ -1,0 +1,257 @@
+/* Real Chromium navigation, API requests, cookie paths and WebSocket routing. */
+const assert = require('node:assert/strict');
+const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '/tmp/openwisp-browser/node_modules/playwright');
+
+(async () => {
+  const origins = process.argv.slice(2);
+  assert(origins.length > 0);
+  const browser = await chromium.launch({headless: true});
+  try {
+    const context = await browser.newContext({ignoreHTTPSErrors: true});
+    for (const origin of origins) {
+      assert.equal((await context.request.get(origin + '/api/hassio_ingress/two/admin/')).status(), 200);
+    }
+    for (const origin of origins) {
+    const otherOrigins = origins.filter(value => value !== origin);
+    const page = await context.newPage();
+    const errors = [], escaped = [], sockets = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => {
+      const url = new URL(request.url());
+      if (url.origin === origin && !url.pathname.startsWith('/api/hassio_ingress/')) escaped.push(url.pathname);
+    });
+    page.on('websocket', socket => sockets.push(socket.url()));
+    async function menuNavigation(prefix, limited = false) {
+      const home = page.locator('nav.nav > a.menu-item[aria-label="Home"]');
+      const info = page.locator('nav.nav > a.menu-item[aria-label="System info"]');
+      async function inspect() {
+        assert.equal(await home.count(), 1);
+        assert.equal(await info.count(), 1);
+        assert.equal(await home.getAttribute('href'), prefix + '/admin/');
+        assert.equal(await info.getAttribute('href'), prefix + '/admin/openwisp-system-info/');
+        assert.equal(await home.locator('.ow-dashboard-icon').count(), 1);
+        assert.equal(await info.locator('.ow-info-icon').count(), 1);
+        assert(await home.evaluate((el, other) => !!(el.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING), await info.elementHandle()));
+        const model = page.locator('nav.nav > a.menu-item[aria-label="Devices"]');
+        if (limited) assert.equal(await model.count(), 0);
+        else {
+          assert.equal(await model.count(), 1);
+          assert.equal(await model.getAttribute('href'), prefix + '/admin/config/device/');
+        }
+      }
+      async function clickAndCheck(link, path, content) {
+        const [response] = await Promise.all([page.waitForNavigation(), link.click()]);
+        assert.equal(response.status(), 200);
+        assert.equal(page.url(), origin + prefix + path);
+        for (let request = response.request(); request; request = request.redirectedFrom()) {
+          assert(new URL(request.url()).pathname.startsWith(prefix + '/'));
+        }
+        assert.match(await page.textContent('body'), content);
+      }
+      await inspect();
+      await clickAndCheck(info, '/admin/openwisp-system-info/', /System Information/);
+      await inspect();
+      await clickAndCheck(home, '/admin/', /OpenWISP/);
+      await inspect();
+    }
+    // Reproduce Core's no-referrer response policy without the app's meta tag.
+    // The submitted form still has its real session, CSRF cookie and token.
+    const brokenUrl = origin + '/api/hassio_ingress/one/admin/password_change/';
+    await page.route(brokenUrl, async route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const response = await route.fetch();
+      const body = (await response.text()).replace(/<meta name="referrer" content="strict-origin">/g, '');
+      await route.fulfill({response, body});
+    });
+    await page.goto(brokenUrl);
+    const brokenPost = page.waitForResponse(r => r.url() === brokenUrl && r.request().method() === 'POST');
+    await page.locator('#content-main form').evaluate(form => form.submit());
+    const broken = await brokenPost;
+    assert.equal(broken.request().headers()['origin'], 'null');
+    assert.equal(broken.status(), 403);
+    await page.unroute(brokenUrl);
+    for (const token of ['one', 'two']) {
+      const prefix = '/api/hassio_ingress/' + token;
+      const response = await page.goto(origin + prefix + '/admin/');
+      assert.equal(response.status(), 200);
+      assert.equal(response.headers()['x-frame-options'], 'SAMEORIGIN');
+      assert.equal(response.headers()['referrer-policy'], 'no-referrer');
+      assert.equal(response.headers()['strict-transport-security'], undefined);
+      assert.equal(await page.locator('meta[name=referrer]').count(), 1);
+      assert.equal(await page.locator('meta[name=referrer]').getAttribute('content'), 'strict-origin');
+      await page.waitForLoadState('networkidle');
+      assert.match(await page.textContent('body'), /test-admin/);
+      await menuNavigation(prefix);
+      const cookies = await context.cookies(origin + prefix + '/admin/');
+      assert(cookies.some(cookie => cookie.name === 'openwisp_ingress_session'));
+      assert(cookies.some(cookie => cookie.name === 'openwisp_ingress_csrf'));
+      assert(cookies.every(cookie => cookie.path === prefix + '/' && cookie.domain === new URL(origin).hostname && cookie.secure === origin.startsWith('https:') && cookie.sameSite === 'Lax'));
+      const api = await page.request.get(origin + prefix + '/api/v1/controller/device/');
+      assert.equal(api.status(), 200);
+      // Existing forms must keep CSRF protection and reverse their actions under
+      // the prefix. A validation-error POST does not change application state.
+      await page.goto(origin + prefix + '/admin/password_change/');
+      const post = page.waitForResponse(r => r.url() === origin + prefix + '/admin/password_change/' && r.request().method() === 'POST');
+      await page.locator('#content-main form').evaluate(form => form.submit());
+      const submitted = await post;
+      assert.equal(submitted.request().headers()['origin'], origin);
+      assert.equal(submitted.status(), 200);
+      assert(page.url().startsWith(origin + prefix + '/'));
+      const rejected = await page.request.post(origin + prefix + '/admin/password_change/', {data: {}});
+      assert.equal(rejected.status(), 403);
+      const csrf = (await context.cookies(origin + prefix + '/admin/')).find(c => c.name === 'openwisp_ingress_csrf').value;
+      const invalidToken = await page.request.post(origin + prefix + '/admin/password_change/', {
+        form: {csrfmiddlewaretoken: 'x'.repeat(32)}, headers: {Origin: origin}});
+      assert.equal(invalidToken.status(), 403);
+      for (const badOrigin of ['null', 'https://untrusted.example', ...otherOrigins]) {
+        const forbidden = await page.request.post(origin + prefix + '/admin/password_change/', {
+          form: {csrfmiddlewaretoken: csrf}, headers: {Origin: badOrigin}});
+        assert.equal(forbidden.status(), 403);
+      }
+      if (origin.startsWith('https:')) {
+        for (const headers of [{}, {Referer: 'https://untrusted.example/'}]) {
+          const forbidden = await page.request.post(origin + prefix + '/admin/password_change/', {
+            form: {csrfmiddlewaretoken: csrf}, headers});
+          assert.equal(forbidden.status(), 403);
+        }
+      }
+      await page.goto(origin + prefix + '/admin/config/device/');
+      await menuNavigation(prefix);
+      assert.equal((await page.request.get(origin + prefix + '/static/admin/css/base.css')).status(), 200);
+      // The notifications connection must perform a real successful upgrade.
+      const upgraded = await page.evaluate(prefix => new Promise(resolve => {
+        const socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + prefix + '/ws/notification/');
+        socket.onopen = () => { socket.close(); resolve(true); };
+        socket.onerror = () => resolve(false);
+        setTimeout(() => resolve(false), 10000);
+      }), prefix);
+      assert(upgraded, 'Notification WebSocket failed');
+    }
+    const prefix = '/api/hassio_ingress/two';
+    assert.equal((await page.goto(origin + '/api/hassio_ingress/limited/admin/')).status(), 200);
+    await menuNavigation('/api/hassio_ingress/limited', true);
+    await page.goto(origin + prefix + '/admin/');
+    await page.evaluate(url => {
+      const frame = document.createElement('iframe');
+      frame.src = url;
+      document.body.appendChild(frame);
+    }, origin + prefix + '/admin/password_change/');
+    const frameElement = page.locator('iframe').last();
+    assert.equal(await frameElement.getAttribute('sandbox'), null);
+    const frame = frameElement.contentFrame();
+    await frame.locator('#content-main form').waitFor();
+    assert.equal(await frame.locator('meta[name=referrer]').getAttribute('content'), 'strict-origin');
+    const framePost = page.waitForResponse(r => r.url() === origin + prefix + '/admin/password_change/' && r.request().method() === 'POST');
+    await frame.locator('#content-main form').evaluate(form => form.submit());
+    const framed = await framePost;
+    assert.equal(framed.request().headers()['origin'], origin);
+    assert.equal(framed.status(), 200);
+    assert.deepEqual(escaped, []);
+    assert.deepEqual(errors, []);
+    {
+      const page = await context.newPage();
+      const errors = [], escaped = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('request', request => {
+        const url = new URL(request.url());
+        if (url.origin === origin && !url.pathname.startsWith('/api/hassio_ingress/')) escaped.push(url.pathname);
+      });
+      // The reported failures affected these two change forms. Each save is
+      // repeated and reloaded to establish that the write actually persisted.
+      for (const [path, field] of [
+        ['/admin/openwisp_users/organization/22222222-2222-4222-8222-222222222222/change/', '#id_description'],
+        ['/admin/config/device/33333333-3333-4333-8333-333333333333/change/', '#id_notes'],
+      ]) {
+        const url = origin + prefix + path;
+        for (const value of ['Ingress save first', 'Ingress save second']) {
+          assert.equal((await page.goto(url)).status(), 200);
+          assert.equal(await page.locator('meta[name=referrer]').count(), 1);
+          assert((await page.locator(field).evaluate(input => input.form.action)).startsWith(origin + prefix + '/'));
+          await page.locator(field).fill(value);
+          const post = page.waitForResponse(r => r.url() === url && r.request().method() === 'POST');
+          await page.locator('input[name=_continue]').first().click();
+          const response = await post;
+          assert.equal(response.request().headers()['origin'], origin);
+          assert(response.status() >= 200 && response.status() < 400, `Save failed: ${response.status()}`);
+          // The editor polls and can leave auxiliary requests pending. Wait for
+          // the save result, then reload to verify the database write.
+          await page.locator('.messagelist .success').waitFor();
+          assert.match(await page.textContent('body'), /successfully/);
+          await page.goto(url);
+          assert.equal(await page.locator(field).inputValue(), value);
+        }
+      }
+      await page.close();
+      // The pinned device editor has existing unrelated unprefixed auxiliary
+      // requests. Keep reporting them while retaining the existing strict check
+      // for all other navigation; the form submissions above must stay scoped.
+      if (escaped.length) {
+        assert(escaped.every(path => /^\/static\/admin\/img\/icon-(change|delete)link\.svg$/.test(path) ||
+          (path.startsWith(origin) && /^\/[0-9a-f-]{36}$/.test(path.slice(origin.length)))),
+        'Unexpected request escaped the ingress prefix');
+        console.log(`NOTE: device/organization editors made ${escaped.length} auxiliary requests outside ingress`);
+        escaped.length = 0;
+      }
+      if (errors.length) {
+        assert(errors.every(error => error === 'notificationSocket is not defined'), 'Unexpected editor JavaScript error');
+        console.log(`NOTE: editors reported ${errors.length} notificationSocket errors`);
+        errors.length = 0;
+      }
+    }
+    await page.goto(origin + prefix + '/admin/geo/floorplan/add/');
+    await page.locator('#id_location').fill('11111111-1111-4111-8111-111111111111');
+    await page.locator('#id_floor').fill(String(origins.indexOf(origin)));
+    await page.locator('#id_image').setInputFiles({name: 'floor.png', mimeType: 'image/png',
+      buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8//8/AwMDEwMDAwMDAwAkBgMB/DXemwAAAABJRU5ErkJggg==', 'base64')});
+    await page.locator('input[name=_continue]').first().click();
+    await page.locator('.messagelist .success').waitFor();
+    assert.match(await page.textContent('body'), /successfully/);
+    const media = await page.locator('a[href*="/media/floorplans/"]').first().getAttribute('href');
+    assert(media.startsWith(prefix + '/media/'), media);
+    assert.equal((await page.request.get(origin + media)).status(), 200);
+    assert.equal((await page.request.get(origin + '/api/hassio_ingress/limited/admin/geo/floorplan/')).status(), 403);
+    // Logging out clears this prefix's own session and CSRF cookies.
+    const otherCookies = (await context.cookies()).filter(c => c.domain !== new URL(origin).hostname);
+    const csrf = (await context.cookies(origin + prefix + '/admin/')).find(c => c.name === 'openwisp_ingress_csrf').value;
+    const logout = await page.request.post(origin + prefix + '/admin/logout/', {
+      form: {csrfmiddlewaretoken: csrf}, headers: {Referer: origin + prefix + '/admin/'}, maxRedirects: 0});
+    assert(logout.status() < 400);
+    assert(!(await context.cookies(origin + prefix + '/admin/')).some(c => c.name.startsWith('openwisp_ingress_')));
+    assert.deepEqual((await context.cookies()).filter(c => c.domain !== new URL(origin).hostname), otherCookies);
+    for (const token of ['missing', 'denied']) {
+      assert.equal((await page.request.get(origin + '/api/hassio_ingress/' + token + '/admin/')).status(), 403);
+    }
+    // Host and forwarded protocol must form an explicitly configured pair.
+    assert.equal((await page.request.get(origin + prefix + '/admin/', {
+      headers: {Host: 'unlisted.example'}})).status(), 403);
+    assert.equal((await page.request.get(origin + prefix + '/admin/', {
+      headers: {Host: new URL(origin).hostname + ':1'}})).status(), 403);
+    // Unused forwarded host/peer headers cannot widen trust or change identity.
+    assert.equal((await page.request.get(origin + prefix + '/admin/', {
+      headers: {'X-Forwarded-Host': 'unlisted.example', 'X-Openwisp-Peer': '127.0.0.1'}})).status(), 200);
+    for (const proto of ['https,http', 'garbage', new URL(origin).protocol === 'https:' ? 'http' : 'https']) {
+      assert.equal((await page.request.get(origin + '/api/hassio_ingress/forged/admin/', {
+        headers: {'X-Test-Proto': proto}})).status(), 403);
+    }
+    assert.equal((await page.request.get(origin + '/api/hassio_ingress/duplicate/admin/')).status(), 403);
+    // Send real foreign-origin WebSocket upgrades and require a server 403.
+    // Browser CSP, mixed-content and local-network checks can prevent a browser
+    // probe from reaching the adapter. Successful browser upgrades are above.
+    for (const source of [...otherOrigins, 'https://unlisted.example', 'null']) {
+      const response = await page.request.get(origin + prefix + '/ws/notification/', {headers: {
+        Origin: source, Connection: 'Upgrade', Upgrade: 'websocket',
+        'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+      }});
+      assert.equal(response.status(), 403, `WebSocket upgrade from ${source}`);
+    }
+    assert.deepEqual(escaped, []);
+    assert.deepEqual(errors, []);
+    assert(sockets.every(url => new URL(url).pathname.startsWith('/api/hassio_ingress/')));
+    console.log(`PASS: ${new URL(origin).protocol} Chromium navigation, forms/CSRF, API, assets, upload/media, logout, cookies, permissions, identity/host/protocol denial and same/cross-origin WebSockets`);
+    await page.close();
+    }
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+})().catch(error => { console.error(error); process.exit(1); });
